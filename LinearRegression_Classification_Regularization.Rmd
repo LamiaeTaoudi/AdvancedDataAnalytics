@@ -1,0 +1,240 @@
+---
+title: "Homework 1"
+author: "Lamiae Taoudi"
+date: "October 11, 2022"
+output:
+  
+  word_document: default
+  pdf_document: default
+---
+```{r setup, include=FALSE} 
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+```
+## Question 2: Using data set kyphosis 
+Randomly dividing the data into training (75%) and testing (25%) set
+
+```{r}
+library(tidyverse)
+library(caret)
+data("kyphosis", package = "gam")
+head(kyphosis)
+dim(kyphosis)
+
+# Split the data into training and test set
+set.seed(123)
+training.samples <- kyphosis$Age %>%
+  createDataPartition(p = 0.75, list = FALSE)
+train.data  <- kyphosis[training.samples, ]
+test.data <- kyphosis[-training.samples, ]
+```
+
+### 2.1 Fitting a regularized discriminant analysis model and finding the best tuning parameter combination. Evaluate the model using the testing set and report the confusion matrix.
+```{r}
+library(klaR)
+cv_5_grid = trainControl(method = "cv", number = 5)
+fit_rda_grid = train(Kyphosis ~ ., data = train.data, method = "rda", trControl = cv_5_grid)
+
+fit_rda_grid
+plot(fit_rda_grid)
+
+# Using best tuning parameter combination
+model.rda<- rda( Kyphosis ~ ., data = train.data, 
+                 gamma = fit_rda_grid$bestTune$gamma , lambda = fit_rda_grid$bestTune$lambda)
+predictions.rda = data.frame(predict(model.rda, test.data))
+confusionM.rda<-confusionMatrix(predictions.rda$class,test.data$Kyphosis)
+print(confusionM.rda$table)
+```
+
+
+### 2.2 Fitting a logistic regression model: 
+
+```{r}
+library(nnet)
+# Fit the model
+model.logReg <- nnet::multinom(Kyphosis ~., data = train.data)
+# Summarize the model
+summary(model.logReg)
+
+```
+#### Interpreting the coefficients estimates
+
+The number 0.01071876 means that as Age of child increases, the probability that the kyphosis is present increases. 
+Similarly, 0.40821661 means that when Number of vertebra involved in the operation gets larger, so does the probability that the kyphosis is present. 
+However, since the coefficient corresponding to Start is -0.17790298, then when Start increase, the probability of kyphosis being present decreases.   
+Finally, the intercept coefficient is -2.22450940 which is equal to the log odds ratio when Age, number and Start are zero.
+
+
+### 2.3 Fitting a regularized logistic regression model, and finding the best model from  regularization and reporting the confusion matrix based on the testing set
+
+```{r}
+library(glmnet)
+library(fastDummies)
+x<-train.data[,2:4] %>% as.matrix()
+y<-train.data[,1] %>% as.matrix()
+
+y_dummy<-dummy_columns(y)
+colnames(y_dummy)[colnames(y_dummy) == "V1_absent"] <- "absent"
+colnames(y_dummy)[colnames(y_dummy) == "V1_present"] <- "present"
+
+
+y_dummy1<-y_dummy[,2:3] %>% as.matrix()
+
+# Perform 10-fold cross-validation to select lambda ---------------------------
+lambdas_to_try <- 10^seq(-3, 3, length.out = 100)
+# Setting alpha = 1 implements lasso regression
+lasso_cv <- cv.glmnet(x, y_dummy1, family="multinomial", alpha =1, lambda = lambdas_to_try,
+                      standardize = TRUE, nfolds = 10)
+plot(lasso_cv)
+lasso_model<-glmnet(x, y_dummy1, family="multinomial", alpha = 1,  lambda=lasso_cv$lambda.min, standardize = TRUE)
+test_class_hat<-as.factor(predict(lasso_model, newx = as.matrix(test.data[,2:4]),type="class"))
+
+print(confusionMatrix(test_class_hat,test.data$Kyphosis)$table)
+
+```
+
+
+## Question 3: Using randomly generated data 
+#### 3.1 Using mvrnorm function to generate the training data set 
+##### a)	X is a 100*2 matrix (100 samples of two-dimensional input)
+
+```{r}
+library(MASS)
+# X matrix 
+set.seed(100)
+X <- matrix(rep(0,200), 100, 2 )
+
+S1<- matrix(c(1, 0.8, 0.8, 1.5), 2,2)
+mu1 <- c(0,0)
+X[1:50,] <- mvrnorm(50, mu1, S1)
+
+S2 <- matrix(c(0.5, 0.4, 0.4, 1), 2,2)
+mu2 <- c(0.5,0.5)
+X[51:100,] <- mvrnorm(50, mu2, S2)
+```
+
+
+##### a)	b)	Y is a 100*1 vector with the first 50 elements equal to 1, and the second 50 elements equal to -1
+
+
+```{r}
+# Y vector of -1 and 1 
+Y = rep(c(1, -1), c(50, 50))
+
+```
+
+
+#### 3.2 Fitting a nonlinear SVM model (using radial kernel) based on the training data generated in 3.1, and making a plot to visualize the decision boundary with cost=10
+
+```{r}
+library(e1071)
+dat = data.frame(X, Y = as.factor(Y))
+
+svmfit = svm(Y ~ ., data = dat, kernel = "radial", cost = 10, scale = FALSE)
+print(svmfit)
+
+```
+```{r}
+make.grid = function(x, n = 100) {
+  grange = apply(x, 2, range)
+  x1 = seq(from = grange[1,1], to = grange[2,1], length = n)
+  x2 = seq(from = grange[1,2], to = grange[2,2], length = n)
+  expand.grid(X1 = x1, X2 = x2)
+}
+xgrid = make.grid(X)
+# xgrid[1:10,]
+ygrid = predict(svmfit, xgrid)
+plot(xgrid, col = c("red","blue")[as.numeric(ygrid)], pch = 20, cex = .2)
+points(X, col = Y + 3, pch = 19)
+points(X[svmfit$index,], pch = 5, cex = 2)
+```
+
+
+#### 3.3 Generating the testing data set with 100 samples using seed(123)
+
+```{r}
+# X matrix 
+set.seed(123)
+Xt <- matrix(rep(0,200), 100, 2 )
+
+S1t<- matrix(c(1, 0.8, 0.8, 1.5), 2,2)
+mu1t <- c(0,0)
+Xt[1:50,] <- mvrnorm(50, mu1t, S1t)
+
+S2t <- matrix(c(0.5, 0.4, 0.4, 1), 2,2)
+mu2t <- c(0.5,0.5)
+Xt[51:100,] <- mvrnorm(50, mu2t, S2t)
+
+Yt = rep(c(-1, 1), c(50, 50))
+```
+
+
+##### a)	Evaluating the classification performance using the classification accuracy based on the testing data set
+
+
+```{r}
+dat.test=data.frame(Xt, Y = as.factor(Yt))
+
+svmfit = svm(Y ~ ., data = dat, kernel = "linear", cost = 10, scale = FALSE)
+print(svmfit)
+dat.test.svm<-predict(svmfit,data=dat.test)
+ConfusionM.svm<-confusionMatrix(dat.test.svm,dat.test$Y)
+print(ConfusionM.svm)
+```
+
+
+
+##### b)	Specifying the number of type I errors and type II errors based on the confusion matrix.
+Type I error = False positive = 31, Type II error = False Negative = 32
+
+
+#### 3.4 Using a for-loop to test the performance of the SVM model using radial kernel when using cost = 1, 10, 100, 1000, and reporting the performance based on the testing set by plotting the classification accuracy vs log10(cost)
+
+
+
+```{r}
+# cost vector
+cvals <- c(1, 10, 100, 1000)
+# Accuracy vector
+accvals <- c()
+for(i in 1:length(cvals)){
+  svmfit.rd = svm(Y ~ ., data = dat, kernel = "radial", cost = cvals[i], scale = FALSE)
+  dat.test.svm<-predict(svmfit.rd,data=dat.test)
+  ConfusionM.svm<-confusionMatrix(dat.test.svm,dat.test$Y)
+  accvals[i]<- ConfusionM.svm$overall[1]
+}
+# Plot 
+plot( log10(cvals), accvals )
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

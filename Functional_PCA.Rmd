@@ -1,0 +1,216 @@
+---
+title: "Homework 3"
+author: "Lamiae Taoudi"
+date: "2022-11-13"
+output: word_document
+---
+
+```{r ,message=FALSE, warning=FALSE,setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Question 1: Using data set kyphosis from R package gam
+
+Randomly dividing the data into training (75%) and testing (25%) set
+
+```{r}
+library(tidyverse)
+library(caret)
+data("kyphosis", package = "gam")
+head(kyphosis)
+dim(kyphosis)
+
+# Split the data into training and test set
+set.seed(123)
+training.samples <- kyphosis$Age %>%
+  createDataPartition(p = 0.75, list = FALSE)
+train.data  <- kyphosis[training.samples, ]
+test.data <- kyphosis[-training.samples, ]
+```
+
+### 1.1 Using function gam to fit a logistic regression model Add nonlinear terms as you see fit
+```{r}
+library(splines)
+library(gam)
+gam2 = gam(Kyphosis ~ s(Age, 5) + s(Number, 5) + s(Start,5), family = binomial,data = kyphosis)
+par(mfrow = c(1,3))
+plot(gam2, se = TRUE, col = "blue")
+```
+```{r}
+summary(gam2)
+```
+
+
+### 1.2 Comparing the testing results of the model built in 1.1 with the results you obtained in HW2 Q2 (2.2)Fitting a logistic regression model: 
+
+```{r}
+library(nnet)
+# Fit the model
+model.logReg <- nnet::multinom(Kyphosis ~., data = train.data)
+# Summarize the model
+summary(model.logReg)
+
+```
+The residual deviance using gam is 35.4366 which is less than the one obtained using the logistic regression model which is 50.3657.
+
+
+## Question 2
+```{r}
+n = 100
+X  <- runif(n, min = 0, max = 1)
+er <- rnorm(n, mean=0, sd=1)
+
+fx <- function(x) sin(12*(x+0.2))/(x+0.2)
+Y <- fx(X)+ er
+
+# Fit 2 smoothing splines with df = 5
+fit_smooth5 <- smooth.spline(X, Y, df = 5)
+fit_smooth_cv <- smooth.spline(X, Y, cv = TRUE)
+
+# Plot the smoothing splines
+ggplot() +
+  geom_point(aes(x = X, y = Y)) +
+  geom_line(aes(x = fit_smooth5$x, y = fit_smooth5$y, 
+                color = "5 degrees of freedom"))  +
+  geom_line(aes(x = fit_smooth_cv$x, y = fit_smooth_cv$y, 
+                color = "CV effective degrees of freedom")) +
+  theme(legend.position = 'bottom')+ 
+  labs(title = "Smoothing Splines", colour="")
+```
+
+
+```{r}
+# Fit 2 smoothing splines with df = 9
+fit_smooth9 <- smooth.spline(X, Y, df = 9)
+
+# Plot the smoothing splines
+ggplot() +
+  geom_point(aes(x = X, y = Y)) +
+  geom_line(aes(x = fit_smooth9$x, y = fit_smooth9$y, 
+                color = "9 degrees of freedom"))  +
+  geom_line(aes(x = fit_smooth_cv$x, y = fit_smooth_cv$y, 
+                color = "CV effective degrees of freedom")) +
+  theme(legend.position = 'bottom')+ 
+  labs(title = "Smoothing Splines", colour="")
+```
+
+```{r}
+# Fit 2 smoothing splines with df = 15
+fit_smooth15 <- smooth.spline(X, Y, df = 15)
+
+# Plot the smoothing splines
+ggplot() +
+  geom_point(aes(x = X, y = Y)) +
+  geom_line(aes(x = fit_smooth15$x, y = fit_smooth15$y, 
+                color = "15 degrees of freedom"))  +
+  geom_line(aes(x = fit_smooth_cv$x, y = fit_smooth_cv$y, 
+                color = "CV effective degrees of freedom")) +
+  theme(legend.position = 'bottom')+ 
+  labs(title = "Smoothing Splines", colour="")
+```
+
+## Question 3: Using data set CanadianWeather from R package "fda"
+
+```{r}
+library(fda)                  # load package
+data("CanadianWeather")       # load data
+attach(CanadianWeather)       # attach data
+month <- 1:12
+dim(CanadianWeather$monthlyPrecip)
+n <- ncol(CanadianWeather$monthlyPrecip)
+```
+
+Looking at the monthly precipitation 
+```{r}
+matplot(month, CanadianWeather$monthlyPrecip,
+        type='l', lty=1, col = rainbow(n),
+        xlab="months", ylab="precipitation", 
+        main="monthly precipitation")
+```
+
+
+### 3.1	Choosing the level of smoothing using generalized cross validation criterion to represent CanadianWeather$monthlyPrecip using a functional object
+
+```{r}
+#  -------------------------------------------------------------------
+#                 Choose level of smoothing using
+#          the generalized cross-validation criterion
+#  -------------------------------------------------------------------
+
+# setup basis
+mbasis <- create.fourier.basis(rangeval=c(0, 12), nbasis=6)
+
+#  harmonic acceleration operator 
+harmaccelLfd <- vec2Lfd(c(0,(2*pi/12)^2,0), c(0, 12))
+
+#  set up range of smoothing parameters in log_10 units
+
+Loglam <- seq(-4,0,0.25)
+nglam   <- length(Loglam)
+
+# generate an array to keep track of the results for each iteration
+SmoothStats <- array(NA, dim=c(nglam, 3),
+      dimnames=list(Loglam, c("log10.lambda", "df", "gcv") ) )
+SmoothStats[, 1] <- Loglam
+
+# loop through smoothing parameters
+
+for (ilam in 1:nglam) {
+  Smooth <- smooth.basisPar(c(1:12), CanadianWeather$monthlyPrecip, mbasis,
+                   Lfdobj=int2Lfd(2), lambda=10^Loglam[ilam])
+  SmoothStats[ilam, "df"]  <- Smooth$df
+  SmoothStats[ilam, "gcv"] <- sum(Smooth$gcv)
+  # note: gcv is a matrix in this case
+}
+
+#  display and plot GCV criterion and degrees of freedom
+SmoothStats
+plot(SmoothStats[, 1], SmoothStats[, 3])
+```
+The lowest GCV corresponds to log10.lambda= -1 and df =6 
+```{r}
+
+plot(Loglam, SmoothStats[, "gcv"], type="b",
+     xlab="Log_10 lambda", ylab="GCV Criterion",
+     main="Precipitation Smoothing", log="y")
+
+plot(Loglam, SmoothStats[, "df"], type="b",
+     xlab="Log_10 lambda", ylab="Degrees of freedom",
+     main="Precipitation Smoothing")
+
+```
+
+
+```{r}
+str(CanadianWeather$monthlyPrecip)
+
+precipfd <- smooth.basisPar(c(1:12), CanadianWeather$monthlyPrecip,
+       mbasis, Lfdobj=harmaccelLfd, lambda=1e-1)$fd
+
+str(precipfd)
+
+```
+
+### 3.2	Performing functional PCA analysis to CanadianWeather$monthlyPrecip 
+```{r}
+#  --------------------------------------------------------------
+#            Principal components analysis
+#  --------------------------------------------------------------
+
+#  do the PCA with varimax rotation
+
+# Smooth with lambda as determined above
+fdPar  <- fdPar(mbasis, harmaccelLfd, lambda=1e-1)
+pca.fd <- pca.fd(precipfd, nharm=4, fdPar)
+
+pca.fd <- varmx.pca.fd(pca.fd)
+
+#  plot harmonics using cycle plots
+
+#par(mfrow=c(1,1), mar=c(3,4,2,1), pty="s")
+op <- par(mfrow=c(2,2))
+plot.pca.fd(pca.fd, cycle=TRUE)
+par(op)
+```
+
+

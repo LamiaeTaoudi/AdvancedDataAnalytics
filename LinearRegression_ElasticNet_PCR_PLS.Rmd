@@ -1,0 +1,250 @@
+---
+title: "Homework 1"
+author: "Lamiae Taoudi"
+date: "August 29, 2022"
+output:
+  
+  word_document: default
+  pdf_document: default
+---
+
+## Question 1: Iris data set
+
+Loading the Iris dataset
+
+```{r message=FALSE}
+library(datasets)
+data(iris)
+summary(iris)
+```
+
+
+### 1. Fitting a linear regression model using Sepal.Length as response and Sepal.Width as the only one predictor : Model 0 
+ 
+```{r}
+lm.model0 <-lm(formula=Sepal.Length ~ Sepal.Width, data=iris)
+summary(lm.model0)
+```
+#### A. Parameters
+
+
+#### B. Evaluation of Model 0 
+$Adj R^2 = 0.007159$ is too low, therefore the model doesn't explain the variation in Sepal length of iris flowers  
+
+#### C. Comments about Model 0 
+Model 0 is not good for prediction since its adjusted $R^2$ is too low. One way to improve the model is to add other variables to model the sepal length.  
+
+### 2. Fitting a linear regression model using Sepal.Length as response, Sepal.Width and Species as predictors : Model 1 
+ 
+```{r}
+lm.model1 <-lm(formula=Sepal.Length ~ Sepal.Width + Species, data=iris)
+summary(lm.model1)
+```
+#### A. Parameters Interpretation
+
+
+
+
+
+#### B. Comments about Model 1 
+Model 1 has a higher adjusted $Adj R^2 = 0.7203$ and therefore this model is good for prediction.  
+
+### 3. Another model that have better adj R2 than Model 1: Model 2 
+ 
+```{r}
+lm.model2 <-lm(formula=Sepal.Length ~ (Sepal.Width)*(Species) + Petal.Length*(Species) +Petal.Width*(Species) + exp(Petal.Width), data=iris)
+summary(lm.model2)
+```
+Model 2 incorporates interaction terms and an exponential term to get a higher adjusted $ R^2 = 0.8723$ . 
+
+### 4. Subset selection using step() function: Model 3 
+ 
+```{r}
+lm.null<-lm(formula=Sepal.Length ~ 1, data=iris)
+lm.model3 <- step(lm.null, direction = "both", trace =1, 
+                  scope= ~ Sepal.Width*Species+Petal.Length*(Species) +Petal.Width*(Species)+exp(Petal.Width))
+summary(lm.model3)
+
+
+final_bw_bic = step(lm.model2,  
+                    direction="backward", k=log(nrow(iris)), trace = F)
+
+summary(final_bw_bic)
+```
+Using a forward backward subset selection with AIC based on model 2, Model 3 has adjusted $ R^2 = 0.8694$. 
+
+## Question 2: Cars data set: Elastic Net
+
+### 1. Exploring the performance of elastic net model 
+Loading the Cars data set and required packages
+```{r}
+# Load libraries, get data & set seed for reproducibility ---------------------
+set.seed(123)    # seed for reproducibility
+library(glmnet)  # for ridge regression
+library(dplyr)   # for data cleaning
+library(psych)   # for function tr() to compute trace of a matrix
+
+data("mtcars")
+# Center y, X will be standardized in the modelling function
+y <- mtcars %>% select(mpg) %>% scale(center = TRUE, scale = FALSE) %>% as.matrix()
+X <- mtcars %>% select(-mpg) %>% as.matrix()
+```
+ Looking at the performance of the  Elastic net model with respect to 
+#### A. Different Lambda
+
+```{r}
+# Perform 10-fold cross-validation to select lambda ---------------------------
+lambdas_to_try <- 10^seq(-3, 5, length.out = 100)
+# Setting alpha = 1 implements lasso regression
+alpha_to_try<- seq(-0.1, 0.9, length.out = 10)
+ElasticNet_cv <- cv.glmnet(X, y, alpha = 0.5, lambda = lambdas_to_try,
+                      standardize = TRUE, nfolds = 10)
+# Plot cross-validation results
+par(c(1,2))
+plot(ElasticNet_cv)
+plot(log10(ElasticNet_cv$lambda),ElasticNet_cv$cvm)
+ElasticNet_cv$lambda
+```
+
+```{r}
+# Best cross-validated lambda
+lambda_cv <- ElasticNet_cv$lambda.min
+lambda_cv
+# Fit final model, get its sum of squared residuals and multiple R-squared
+Model_cv <- glmnet(X, y, alpha = 0.5, lambda = lambda_cv, standardize = TRUE)
+y_hat_cv <- predict(Model_cv, X)
+ssr_cv <- t(y - y_hat_cv) %*% (y - y_hat_cv)
+rsq_ElasticNet_cv <- cor(y, y_hat_cv)^2
+rsq_ElasticNet_cv
+
+# See how increasing lambda shrinks the coefficients --------------------------
+# Each line shows coefficients for one variables, for different lambdas.
+# The higher the lambda, the more the coefficients are shrinked towards zero.
+res <- glmnet(X, y, alpha = 0.5, lambda = lambdas_to_try, standardize = FALSE)
+plot(res, xvar = "lambda")
+legend("bottomright",  col = 1:6, legend = colnames(X), cex = .7)
+```
+
+
+
+
+
+
+#### B. Different alpha
+
+```{r}
+# Perform 10-fold cross-validation to select alpha ---------------------------
+lambdas_to_try <- 10^seq(-3, 5, length.out = 100)
+# Setting alpha = 1 implements lasso regression
+alpha_to_try<- seq(-0.1, 0.9, length.out = 10)
+# store values of lambda min and R2 fpr each alpha 
+Results_cv <- data.frame(matrix(nrow = length(alpha_to_try), ncol = 3))
+colnames(Results_cv) <-c("Alpha", "lambda_min", "R2")
+lambda_min <- c()
+for(i in 1:length(alpha_to_try)){
+  Results_cv[i, "Alpha"] = alpha_to_try[i]
+  ElasticNet_cv <- cv.glmnet(X, y, alpha = alpha_to_try[i], lambda = lambdas_to_try,
+                      standardize = TRUE, nfolds = 10)
+  lambda_min[i] <- ElasticNet_cv$lambda.min
+  Results_cv[i, "lambda_min"] = lambda_min[i]
+  Model_cv <- glmnet(X, y, alpha = alpha_to_try[i], lambda = lambda_min[i], standardize = TRUE)
+  y_hat_cv <- predict(Model_cv, X)
+  ssr_cv <- t(y - y_hat_cv) %*% (y - y_hat_cv)
+  Results_cv[i, "R2"] <- cor(y, y_hat_cv)^2
+}
+Results_cv
+# Extracting the alpha value with maximum R2 
+R2_max <- Results_cv$R2[which.max(Results_cv$R2)]
+R2_max
+Alpha_max <- Results_cv$Alpha[which.max(Results_cv$R2)]
+Alpha_max
+```
+
+
+```{r}
+# The higher the lambda, the more the coefficients are shrinked towards zero.
+res <- glmnet(X, y, alpha = Alpha_max, lambda = lambdas_to_try, standardize = FALSE)
+plot(res, xvar = "lambda")
+legend("bottomright",  col = 1:6, legend = colnames(X), cex = .7)
+```
+### 2. Better model than Ridge and LASSO   
+
+From Lab 3 and using the same the data set and response variable, Ridge had $R^2 = 0.8524$ and LASSO had a lower $R^2 = 0.8424217$ using cross validation. Elastic net model provides an $R^2 = 0.8566$ when $\alpha = 0.6777$ and $\lambda = 0.4641$ and thus this model is better than the previous ones. 
+
+
+## Question 3: Cars data set: PCR and PLS
+
+Using the cars data set, and using mpg as the response variable. 75% of the samples are used for training and validation and 25% are left for testing. 
+
+```{r}
+library(tidyverse)
+library(caret)
+
+# Split the data into training and test set
+set.seed(123)
+training.samples <- mtcars$mpg %>%
+  createDataPartition(p = 0.75, list = FALSE)
+train.data  <- mtcars[training.samples, ]
+test.data <- mtcars[-training.samples, ]
+
+```
+Using Principal Components Regression:
+
+```{r}
+pcr_model  <- train(
+  mpg~., data = train.data, method = "pcr",
+  scale = TRUE,
+  trControl = trainControl("cv", number = 10),
+  tuneLength = 10
+  )
+# Plot model RMSE vs different values of components
+plot(pcr_model)
+
+# Print the best tuning parameter ncomp that
+# minimize the cross-validation error, RMSE
+pcr_model$bestTune
+
+# Summarize the final model
+summary(pcr_model$finalModel)
+
+# Make predictions based on test data
+predictions <- pcr_model %>% predict(test.data)
+# Model performance metrics
+data.frame(
+  RMSE = caret::RMSE(predictions, test.data$mpg),
+  Rsquare = caret::R2(predictions, test.data$mpg)
+)
+```
+
+Using Partial Least Squares
+
+```{r}
+# Build the PLS model on training set
+set.seed(123)
+
+
+pls_model <- train(
+  mpg~., data = train.data, method = "pls",
+  scale = TRUE,
+  trControl = trainControl("cv", number = 10),
+  tuneLength = 10
+  )
+# Plot model RMSE vs different values of components
+plot(pls_model)
+
+# Print the best tuning parameter ncomp that
+# minimize the cross-validation error, RMSE
+pls_model$bestTune
+
+# Summarize the final model
+summary(pls_model$finalModel)
+
+# Make predictions
+predictions <- pls_model %>% predict(test.data)
+# Model performance metrics
+data.frame(
+  RMSE = caret::RMSE(predictions, test.data$mpg),
+  Rsquare = caret::R2(predictions, test.data$mpg)
+)
+```
+Comparing PCR and PLS, it can be observed that PLS has the lowest RMSE therefore this method is better than PCR. 

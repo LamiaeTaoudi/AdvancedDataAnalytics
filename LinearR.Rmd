@@ -1,0 +1,245 @@
+---
+title: "Midterm Exam"
+output:
+  word_document: default
+  html_notebook: default
+---
+```{r setup, include=FALSE} 
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+```
+## PART 1: Regression 
+
+Loading the dataset
+```{r}
+data("state")
+statdata <- data.frame(state.x77, row.names = state.abb)
+summary(statdata)
+
+```
+
+Life expectancy (Life.Exp) is used as the response and the remaining variables as predictors. 
+
+```{r}
+library(dplyr)
+glimpse(statdata)
+```
+
+Using all the rows except for the row of MS as our training set, and the row of MS as our testing set
+
+```{r}
+stdata.train <- statdata[-24,]
+stdata.test  <-  statdata["MS",]
+```
+
+
+### 1.1 Fitting a linear regression model using the training set based on all the predictors: 
+
+```{r}
+model1.1 <- lm(Life.Exp ~., stdata.train )
+summary(model1.1)
+
+```
+#### Interpreting all the coefficients estimated:
+The intercept has a value of 7.100e+01 which represents the life expectancy when all the attributes are zero. Whereas, the value 5.112e-05 represents the unit change in life expectancy when population increases by one unit. Similarly,  1.048e-01 and 5.183e-02 are the unit increase in life expectancy when illiteracy and high school graduates percent increase by one unit, respectively. Whereas, 9.121e-05, 2.981e-01, 5.510e-03, and 1.333e-07 are the unit decrease in life expectancy in years as the income, murder rate, frost and area increase by one unit. 
+
+### 1.2 R2 value of model1.1 and interpretation :
+$Adj R^2 =  0.6759$, therefore the full model in model1.1 explains almost 67% of the variation in life expectancy.
+
+### 1.3 Point estimate and 95% confidence interval (CI) for the mean life expectancy for MS
+
+```{r}
+# Point estimate
+ms<- predict(model1.1 , stdata.test,interval="confidence",level=0.95 )
+ms
+
+```
+### 1.4 THREE different models that can potentially improve the performance
+To improve the previous model, feature selection methods and regularization methods can be used to decrease the number of attributes used to model the life expectancy  
+### Forward selection
+
+```{r}
+lm.null<-lm(Life.Exp ~1, stdata.train )
+lm.aic.forward<-step(lm.null,direction="forward",trace=1, scope = ~ Population + Income + Illiteracy + Murder + HS.Grad + Frost + Area)
+summary(lm.aic.forward)
+```
+Starting with a simple model of just the intercept and using the forward selection method with AIC, we obtain a reduced model using Murder, High school graduates percentage, Frost, and Population to model life expectancy with a higher $Adj R^2 =  0.6962$.
+
+#### Backward Selection
+
+```{r}
+lm.aic.backward<-step(model1.1,direction="backward",trace=1)
+summary(lm.aic.backward)
+```
+Using the backward selection method with AIC based on the model1.1 shows that starting from the full model, life expectancy can be fit using Population, Murder, High school graduates percentage, and frost with a similar $Adj R^2 =  0.6962$ as the one with the forward selection method. 
+
+#### LASSO 
+
+```{r}
+library(glmnet)
+set.seed(123)
+# Center y, X will be standardized in the modelling function
+y <- statdata %>% select(Life.Exp) %>% scale(center = TRUE, scale = FALSE) %>% as.matrix()
+X <- statdata %>% select(-Life.Exp) %>% as.matrix()
+# Perform 10-fold cross-validation to select lambda ---------------------------
+lambdas_to_try <- 10^seq(-3, 5, length.out = 100)
+# Setting alpha = 1 implements lasso regression
+lasso_cv <- cv.glmnet(X, y, alpha = 1, lambda = lambdas_to_try,
+                      standardize = TRUE, nfolds = 10)
+# Best cross-validated lambda
+lambda_cv <- lasso_cv$lambda.min
+# Fit final model, get its sum of squared residuals and multiple R-squared
+model_cv <- glmnet(X, y, alpha = 1, lambda = lambda_cv, standardize = TRUE)
+# coefficents of the LASSO model
+coef(model_cv)
+# R2
+y_hat_cv <- predict(model_cv, X)
+ssr_cv <- t(y - y_hat_cv) %*% (y - y_hat_cv)
+rsq_lasso_cv <- cor(y, y_hat_cv)^2
+rsq_lasso_cv
+
+```
+LASSO provides a model with higher $Adj R^2 =  0.7310684$ using similar attributes as the stepwise selection methods used above but with slightly different coefficient values. 
+
+Finally all these three methods performed better than the full model. This can be due to the overfitting problem that occurs when unnecessary information is added to the model and negatively impact its performance, therefore these feature selection and regularization method were able to effectively model life expectancy with only 4 out of 8 attributes. 
+
+
+## PART 2: CLASSIFICATION I
+Loading and cleaning data
+```{r}
+library(mlbench) 
+data("PimaIndiansDiabetes2")
+glimpse(PimaIndiansDiabetes2)
+summary(PimaIndiansDiabetes2)
+# Removing NA's
+Data <- na.omit(PimaIndiansDiabetes2)
+summary(Data)
+```
+Diabetes is used as the response variables, and all the other variables as predictors.
+```{r}
+#modify diabetes values to 0 and 1
+Data$diabetes<-as.numeric(Data$diabetes)
+Data[Data$diabetes=="1", "diabetes"]<-0
+Data[Data$diabetes=="2", "diabetes"]<-1
+Data$diabetes<-as.factor(Data$diabetes)
+```
+
+
+Splitting the dataset to 80% training and 20% testing sets
+
+```{r}
+library(tidyverse)
+library(caret)
+
+# Split the data into training and test set
+set.seed(100)
+training.samples <- Data$diabetes %>%
+  createDataPartition(p = 0.8, list = FALSE)
+train.data <- Data[training.samples, ]
+test.data  <- Data[-training.samples, ]
+
+```
+### 2.1 Fitting a linear SVM model based on the training set using function tune.svm to find the best C parameter 
+
+```{r}
+library(e1071)
+svmtune.lin <- tune.svm(diabetes~., data = train.data, kernel = "linear", cost = c(0.1, 1, 10, 100, 200))
+summary(svmtune.lin)
+
+```
+```{r}
+
+svmfit.lin = svm(diabetes ~ ., data = train.data, kernel = "linear", cost = svmtune.lin$best.parameters$cost)
+print(svmfit.lin)
+```
+
+#### Evaluating its classification performance using the testing set: 
+
+```{r}
+svmtest.lin<- predict(svmfit.lin,newdata=test.data[,1:9])
+ConfusionM.svm.lin<-confusionMatrix(svmtest.lin,test.data$diabetes)
+print(ConfusionM.svm.lin)
+```
+#### Listing the Type I and Type II errors, respectively.
+Type I error = False positive = 18, Type II error = False Negative = 6
+
+
+### 2.2 Fitting a nonlinear SVM model based on the training set by using function tune.svm to find the best C parameter: 
+```{r}
+# nonlinear svm
+svmtune.rd <- tune.svm(diabetes~., data = train.data, kernel = "radial", cost = c(0.1, 1, 10, 100, 200))
+summary(svmtune.rd)
+
+svmfit.rd = svm(diabetes ~ ., data = train.data, kernel = "radial", cost = svmtune.rd$best.parameters$cost)
+print(svmfit.rd)
+
+# classification performance
+svmtest.rd<- predict(svmfit.rd,newdata=test.data[,1:9])
+ConfusionM.svm.rd<-confusionMatrix(svmtest.rd,test.data$diabetes)
+print(ConfusionM.svm.rd)
+```
+
+#### Comparing the Type I and Type II errors with the ones obtained from 2.1
+Type I error = False positive = 16, Type II error = False Negative = 6
+
+Comparing these results with the previous ones obtained from Linear SVM model, the nonlinear SVM model provides lower Type I error but similar type II errors.
+
+The nonlinear SVM model performs better than the linear SVM model since the accuracy of the nonlinear model is 0.7179 which is higher than the accuracy of the linear one which is 0.6923
+
+## PART 3: CLASSIFICATION II
+### 3.1 Using mvrnorm function to generate the training data set 
+#### a)	Three groups of two-dimensional data of 50 rows each and b) X is obtained by concatenating the three groups together (150 samples of two-dimensional input)
+
+```{r}
+library(MASS)
+# X matrix 
+set.seed(100)
+X <- matrix(rep(0,300), 150, 2 )
+S<- matrix(c(1, 0.5, 0.5, 1), 2,2)
+
+# group 1
+mu1 <- c(0,0)
+X[1:50,] <- mvrnorm(50, mu1, S)
+
+# group 2
+mu2 <- c(0,3)
+X[51:100,] <- mvrnorm(50, mu2, S)
+
+# group 3
+mu3 <- c(1.5,1.5)
+X[101:150,] <- mvrnorm(50, mu3, S)
+```
+
+#### c) Y is a 150*1 vector with the first 50 elements equal to 1, the second 50 elements equal to 0, and the third 50 elements equal to 1.
+```{r}
+# Y vector of  0, and 1 
+Y = rep(c(1, 0, 1), c(50, 50, 50))
+```
+
+### 3.2 Fitting a logistic regression model based on the training data generated in 3.1:
+
+```{r}
+library(nnet)
+data.train = data.frame(X, Y = as.factor(Y)) 
+
+# Fit the model
+model.logReg <- nnet::multinom(Y ~., data = data.train)
+# Summarize the model
+summary(model.logReg)
+```
+### 3.3 Fitting a linear discriminant analysis model based on the training data generated in 3.1:
+
+```{r}
+# fit lda model
+model.lda<- lda(Y ~., data = data.train)
+print(model.lda)
+```
+### 3.4 If we know the input variables come from a normal distribution, theoretically which model should perform better, logistic regression or LDA? Why
+
+LDA assumes that each class density follows a multivariate normal distribution with a common covariance matrix which is the case in our training data, whereas Logistic regression doesn't require assumptions about probability distribution of X. Therefore LDA should perform better and can provide more efficient estimates of the parameters 
+
+
+### 3.5  Derivation of all the decision boundaries for the models in 3.1 and 3.2 is attached 
+
+
+
+
