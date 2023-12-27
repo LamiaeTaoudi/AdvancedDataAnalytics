@@ -10,7 +10,7 @@ R codes for assignments and exam of Advanced Data Analytics course. The followin
 - Classification:
    - Linear discrimnant analysis LDA
    - Logistic regression
-   - Supporrt vector machiche SVM
+   - Support vector machiche SVM
 - Functional data analysis:
    - Functional PCA
    - Functional linear models
